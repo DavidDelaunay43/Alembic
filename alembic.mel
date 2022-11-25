@@ -1,0 +1,217 @@
+// Alembic 
+
+
+
+proc AbcWindow (){
+    
+    global string $nameWS = "Alembic";
+    float $colBtn[] = {0.3, 0.3, 0.5};
+    
+    if (`workspaceControl -exists $nameWS`){ 
+        closeAlembic;
+    }
+     
+    // Create UI
+    workspaceControl -mh 200 -mw 200 $nameWS;
+    print($nameWS + "\n") ;
+    workspaceControl -e -dtc "Outliner" "top" $nameWS;
+    
+    columnLayout -w 400 "rootLyt"; 
+    
+    frameLayout -l "Export Alembic" -mh 10 -cll true -cl false -p "rootLyt" -w 500 "exportLyt";
+    rowColumnLayout -nc 1 -p "exportLyt" "exportMenu";
+    rowColumnLayout -nc 1 -p "exportLyt" "exportBtn";
+    
+    frameLayout -l "Import Alembic" -mh 10 -cll true -cl true -p "rootLyt" -w 500 "importLyt";
+    
+    setParent "rootLyt";
+    separator -h 10 -st "in";
+    button -l "        Close        " -c "closeAlembic";
+    
+    rowColumnLayout -nc 1 -p "rootLyt" -vis false "hiddenLyt";
+    
+    setParent "exportMenu" ; 
+    optionMenu -cc "tglMeshSetMenu" "optionMeshSet";
+    menuItem -l "Set to File" "itemSet"; 
+    menuItem -l "Mesh to File" "itemMesh";
+    separator -h 10 -st "none";
+    text -l "Select Set(s)" -al "left" "setText";
+    text -l "Select Mesh(es)" -al "left" -p "hiddenLyt" "meshText";
+    
+    setParent "exportBtn";
+    button -l "    Export Alembic    " -bgc $colBtn[0] $colBtn[1] $colBtn[2] -c "exportAbc" "exportBtn";
+    
+    setParent "importLyt";
+    columnLayout;
+    optionMenu "importMeshSet";
+    menuItem -l "Set" "itemSetImp"; 
+    menuItem -l "Mesh" "itemMeshImp";
+    separator -h 10 -st "none";
+    radioCollection "importOptions";
+    radioButton -l "Merge" -sl "mergeBtn";
+    radioButton -l "BlendShape" "bsBtn"; 
+    separator -h 10 -st "in"; 
+    button -l "    Import Alembic    " -bgc $colBtn[0] $colBtn[1] $colBtn[2] -c "importAbc" "importBtn";
+    
+}
+
+// UI Procs
+proc closeAlembic (){
+    
+    global string $nameWS;
+    workspaceControl -e -floating true $nameWS;
+    deleteUI $nameWS;
+}
+
+proc tglMeshSetMenu (){
+    
+    if (`optionMenu -q -v "optionMeshSet"` == "Set to File"){
+        text -e -p "exportMenu" "setText";
+        text -e -p "hiddenLyt" "meshText";
+    }
+    else{
+        text -e -p "hiddenLyt" "setText";
+        text -e -p "exportMenu" "meshText";
+    }
+}
+
+// Alembic Proc
+proc exportAbc (){
+    
+    string $dir = `workspace -q -rd` + "cache/alembic/";
+    print($dir + "\n");
+    string $frameRange = "1 60";
+    
+    // Mesh to File
+    if (`optionMenu -q -v "optionMeshSet"` == "Mesh to File"){
+        
+        print("Export Alembic : Mesh to File \n");
+        
+        string $meshArray[] = `ls -sl`;
+        string $rootArray[] = `ls -sl -l`;
+        int $i;
+        int $size = `size($meshArray)`;
+        for ($i = 0; $i < $size; $i += 1){
+            print("____________ itération n°" + $i + " ____________ \n");
+            string $mesh = $meshArray[$i];
+            string $root = $rootArray[$i];
+            string $fileAbc = $dir + $mesh + ".abc";
+            print("Mesh " + $mesh + " export to file : " + $fileAbc + "\n");
+            string $job = "-frameRange " + $frameRange + " -uvWrite -worldSpace -dataFormat ogawa -root " + $root + " -file " + $fileAbc;
+            print($job + "\n");
+            AbcExport -j $job;
+        }
+    }
+    
+    // Set to File
+    else{
+        
+        print("Export Alembic : Set to File \n");
+        
+        string $setArray[] = `ls -sl`;
+        print("Selected Sets : \n"); print($setArray, "\n");
+        
+        int $i;
+        int $size = `size($setArray)`;
+        for ($i = 0; $i < $size; $i += 1){
+            print("____________ itération n°" + $i + " ____________ \n");
+            string $set = $setArray[$i];
+            print("Current Set : " + $set +"\n"); 
+            string $setMembers[] = `sets -q -no $set`;
+            print("Set Members : \n"); print($setMembers);
+            select $setMembers;
+            string $rootArray[] = `ls -sl -l`;
+            int $j;
+            int $sizeRoot = `size($rootArray)`;
+            string $rootString;
+            for ($j = 0; $j < $sizeRoot; $j += 1){
+                string $root = $rootArray[$j];
+                $rootString = $rootString + " -root " + $root;
+            }
+            print("roots : " + $rootString + "\n");
+            string $fileAbc = $dir + $set + ".abc";
+            print("Set " + $set + " export to file : " + $fileAbc + "\n");
+            string $job = "-frameRange " + $frameRange + " -uvWrite -worldSpace -dataFormat ogawa" + $rootString + " -file " + $fileAbc;
+            print("jobArg : " + $job + "\n");
+            AbcExport -j $job;
+        select -cl;
+            
+        }
+    }
+}
+
+proc importAbc (){
+    
+    string $dir = `workspace -q -rd` + "cache/alembic/";
+    
+    string $meshArray[] = `ls -sl`;
+    int $i;
+    int $sizeMeshArray = `size($meshArray)`;
+    for ($i = 0; $i < $sizeMeshArray; $i += 1){
+        print("____________ itération n°" + $i + " ____________ \n");
+        string $mesh = $meshArray[$i]; print("Current Mesh : " + $mesh + "\n");
+        string $abcFile = $dir + $mesh + ".abc"; print("File to import : " + $abcFile + "\n");
+    
+        // Merge
+        if (`radioButton -q -sl "mergeBtn"`){
+            
+            print("Import Alembic and Merge \n");
+            AbcImport -mode import -connect $mesh $abcFile;
+        }
+        
+        // BlendShape
+        else{
+            
+            print("Import Alembic and BlendShape \n");
+            
+            string $abcGroup = "Alembic_Grp";
+            if (`objExists "Alembic_Grp"` == false){
+                string $abcGroup = `group -em -n "Alembic_Grp"`; print("Create :" + $abcGroup + "\n");
+                string $abcGroupVis = $abcGroup + ".visibility";
+                setAttr $abcGroupVis 0;
+            }
+            
+            string $abcMeshArrayBefore[] = `listRelatives -c -f $abcGroup`; 
+            int $sizeBefore = `size($abcMeshArrayBefore)`; print("AbcMesh in Alembic_Grp before Import : " + $sizeBefore + "\n");
+            AbcImport -mode import -rpr $abcGroup $abcFile; print("Alembic import under Alembic_Grp \n");
+            string $abcMeshArray[] = `listRelatives -c -f $abcGroup`; 
+            int $sizeAbcMeshArray = `size($abcMeshArray)`;
+            string $abcMeshFpn;
+            
+            // 
+            if ($sizeAbcMeshArray <= $sizeMeshArray){
+                $abcMeshFpn = $abcMeshArray[$i]; 
+            }
+            else{
+                $abcMeshFpn = $abcMeshArray[$sizeBefore + $i]; 
+            }
+            
+            string $abcMesh; string $parts[];
+            int $cnt = tokenize($abcMeshFpn, "|", $parts);
+            if ($cnt <= 0){
+                $abcMesh = $abcMeshFpn;
+            }
+            else{
+                $abcMesh = $parts[($cnt-1)];
+            }
+            $abcMeshName = $abcMesh + "_alembic";
+            
+            rename $abcMeshFpn $abcMeshName;
+            print("Rename : " + $abcMeshFpn + " >> " + $abcMeshName + "\n");
+            
+            string $bsName = "BShp_Abc_" + $abcMeshName; 
+            string $bShape[] = `blendShape -n $bsName $abcMeshName $mesh`; 
+            print("Create BlendShape : " + $bShape[0] + "\n");
+            string $wAttr = $bShape[0] + "." + $abcMeshName;
+            setAttr $wAttr 1;
+        }
+    }
+    select -cl;
+}
+
+AbcWindow ()
+
+
+
+
+
